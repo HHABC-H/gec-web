@@ -1,0 +1,936 @@
+1	<template>
+2	  <div class="ai-qa-container">
+3	    <!-- 页面标题和logo -->
+4	    <div class="header">
+5	      <div class="logo-container">
+6	        <img src="@/assets/image/gdou.png" alt="GDou Logo" class="logo" />
+7	        <div class="title-container">
+8	          <h1 class="main-title">海洋知识AI问答</h1>
+9	          <p class="subtitle">探索海洋奥秘，AI实时解答</p>
+10	        </div>
+11	      </div>
+12	      <div class="header-actions">
+13	        <button class="clear-btn" @click="clearChat" title="清空对话">
+14	          <i class="icon-clear"></i> 清空对话
+15	        </button>
+16	      </div>
+17	    </div>
+18	
+19	    <!-- 主聊天区域 -->
+20	    <div class="main-content">
+21	      <!-- 聊天消息容器 -->
+22	      <div ref="chatContainer" class="chat-container">
+23	        <!-- 欢迎消息 -->
+24	        <div class="welcome-section" v-if="messages.length <= 1">
+25	          <div class="welcome-card">
+26	            <div class="welcome-icon">
+27	              <i class="icon-welcome"></i>
+28	            </div>
+29	            <h3>欢迎使用海洋知识AI助手</h3>
+30	            <p>我是您的专属海洋知识顾问，可以解答各种海洋相关问题</p>
+31	            <div class="quick-questions">
+32	              <p>试试问我：</p>
+33	              <div class="question-chips">
+34	                <span 
+35	                  v-for="(question, index) in quickQuestions" 
+36	                  :key="index" 
+37	                  class="question-chip"
+38	                  @click="useQuickQuestion(question)"
+39	                >
+40	                  {{ question }}
+41	                </span>
+42	              </div>
+43	            </div>
+44	          </div>
+45	        </div>
+46	
+47	        <!-- 消息列表 -->
+48	        <div class="messages-list">
+49	          <div 
+50	            v-for="(msg, index) in messages" 
+51	            :key="index" 
+52	            class="message-item"
+53	            :class="{ 
+54	              'user-message': msg.type === 'user', 
+55	              'ai-message': msg.type === 'ai',
+56	              'streaming': msg.isStreaming 
+57	            }"
+58	          >
+59	            <!-- AI消息 -->
+60	            <div v-if="msg.type === 'ai'" class="message-content ai">
+61	              <div class="message-header">
+62	                <div class="avatar ai-avatar">
+63	                  <img src="@/assets/image/ai.png" alt="AI" />
+64	                </div>
+65	                <span class="sender-name">海洋AI助手</span>
+66	                <span class="message-time">{{ msg.time }}</span>
+67	              </div>
+68	              <div class="message-body">
+69	                <div class="text-content">{{ msg.text }}</div>
+70	                <!-- 流式输出光标 -->
+71	                <div v-if="msg.isStreaming" class="streaming-indicator">
+72	                  <div class="typing-dots">
+73	                    <div class="dot"></div>
+74	                    <div class="dot"></div>
+75	                    <div class="dot"></div>
+76	                  </div>
+77	                </div>
+78	              </div>
+79	              <div class="message-footer" v-if="!msg.isStreaming && msg.text">
+80	                <button 
+81	                  class="action-btn copy-btn" 
+82	                  @click="copyToClipboard(msg.text)"
+83	                  title="复制内容"
+84	                >
+85	                  <i class="icon-copy"></i>
+86	                </button>
+87	              </div>
+88	            </div>
+89	
+90	            <!-- 用户消息 -->
+91	            <div v-if="msg.type === 'user'" class="message-content user">
+92	              <div class="message-header">
+93	                <span class="message-time">{{ msg.time }}</span>
+94	                <span class="sender-name">您</span>
+95	                <div class="avatar user-avatar">
+96	                  <img src="@/assets/image/cele.png" alt="User" />
+97	                </div>
+98	              </div>
+99	              <div class="message-body">
+100	                <div class="text-content">{{ msg.text }}</div>
+101	              </div>
+102	            </div>
+103	          </div>
+104	        </div>
+105	
+106	        <!-- 输入区域 -->
+107	        <div class="input-section">
+108	          <div class="input-container">
+109	            <div class="input-wrapper">
+110	              <textarea
+111	                ref="inputField"
+112	                v-model="userInput"
+113	                placeholder="输入您想了解的海洋知识问题..."
+114	                rows="1"
+115	                @input="adjustTextareaHeight"
+116	                @keydown.enter.exact.prevent="sendMessage"
+117	                @keydown.enter.shift.exact="userInput += '\n'"
+118	                :disabled="isLoading"
+119	                class="message-input"
+120	              ></textarea>
+121	              <div class="input-actions">
+122	                <button
+123	                  v-if="isLoading"
+124	                  class="stop-btn"
+125	                  @click="stopGeneration"
+126	                >
+127	                  <i class="icon-stop"></i> 停止生成
+128	                </button>
+129	                <button
+130	                  class="send-btn"
+131	                  @click="sendMessage"
+132	                  :disabled="!userInput.trim() || isLoading"
+133	                  :class="{ disabled: !userInput.trim() || isLoading }"
+134	                >
+135	                  <i class="icon-send"></i>
+136	                  <span v-if="isLoading">思考中...</span>
+137	                  <span v-else>发送</span>
+138	                </button>
+139	              </div>
+140	            </div>
+141	            <div class="input-footer">
+142	              <div class="tips">
+143	                <i class="icon-tip"></i>
+144	                <span>按 Enter 发送，Shift + Enter 换行</span>
+145	              </div>
+146	            </div>
+147	          </div>
+148	        </div>
+149	      </div>
+150	    </div>
+151	
+152	    <!-- 错误提示 -->
+153	    <transition name="fade">
+154	      <div v-if="errorMessage" class="error-toast">
+155	        <i class="icon-error"></i>
+156	        <span>{{ errorMessage }}</span>
+157	        <button class="close-error" @click="errorMessage = ''">×</button>
+158	      </div>
+159	    </transition>
+160	
+161	    <!-- 复制成功提示 -->
+162	    <transition name="fade">
+163	      <div v-if="showCopySuccess" class="copy-toast">
+164	        <i class="icon-success"></i>
+165	        <span>已复制到剪贴板</span>
+166	      </div>
+167	    </transition>
+168	  </div>
+169	</template>
+170	
+171	<script>
+172	export default {
+173	  name: 'OceanAIQA',
+174	  
+175	  data() {
+176	    return {
+177	      userInput: '',
+178	      messages: [
+179	        {
+180	          text: '您好！我是海洋知识AI助手，专注解答海洋科学、生物、地理、环保等相关问题。请问有什么可以帮您？',
+181	          type: 'ai',
+182	          time: this.formatTime(new Date()),
+183	          isStreaming: false
+184	        }
+185	      ],
+186	      isLoading: false,
+187	      errorMessage: '',
+188	      showCopySuccess: false,
+189	      abortController: null,
+190	      quickQuestions: [
+191	        '海豚为什么会跃出水面？',
+192	        '珊瑚白化的主要原因是什么？',
+193	        '海洋是如何调节地球气候的？',
+194	        '世界上最深的海洋是哪里？',
+195	        '如何保护海洋生态环境？'
+196	      ]
+197	    };
+198	  },
+199	  
+200	  mounted() {
+201	    this.$nextTick(() => {
+202	      this.scrollToBottom();
+203	      this.$refs.inputField?.focus();
+204	    });
+205	  },
+206	  
+207	  methods: {
+208	    formatTime(date) {
+209	      const hours = date.getHours().toString().padStart(2, '0');
+210	      const minutes = date.getMinutes().toString().padStart(2, '0');
+211	      return `${hours}:${minutes}`;
+212	    },
+213	    
+214	    adjustTextareaHeight() {
+215	      const textarea = this.$refs.inputField;
+216	      textarea.style.height = 'auto';
+217	      textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+218	    },
+219	    
+220	    async sendMessage() {
+221	      const question = this.userInput.trim();
+222	      if (!question || this.isLoading) return;
+223	      
+224	      this.messages.push({
+225	        text: question,
+226	        type: 'user',
+227	        time: this.formatTime(new Date()),
+228	        isStreaming: false
+229	      });
+230	      
+231	      this.userInput = '';
+232	      this.adjustTextareaHeight();
+233	      this.scrollToBottom();
+234	      
+235	      const aiMessageIndex = this.messages.length;
+236	      this.messages.push({
+237	        text: '',
+238	        type: 'ai',
+239	        time: this.formatTime(new Date()),
+240	        isStreaming: true
+241	      });
+242	      
+243	      this.isLoading = true;
+244	      this.errorMessage = '';
+245	      
+246	      if (this.abortController) {
+247	        this.abortController.abort();
+248	      }
+249	      
+250	      this.abortController = new AbortController();
+251	      
+252	      try {
+253	        await this.streamAIResponse(question, aiMessageIndex);
+254	      } catch (error) {
+255	        if (error.name !== 'AbortError') {
+256	          console.error('流式请求失败:', error);
+257	          this.errorMessage = error.message || '请求失败，请稍后重试';
+258	          this.messages[aiMessageIndex] = {
+259	            text: '抱歉，回答问题失败。请检查网络连接或稍后重试。',
+260	            type: 'ai',
+261	            time: this.formatTime(new Date()),
+262	            isStreaming: false
+263	          };
+264	        }
+265	      } finally {
+266	        this.isLoading = false;
+267	        this.scrollToBottom();
+268	      }
+269	    },
+270	    
+271	    async streamAIResponse(question, messageIndex) {
+272	      try {
+273	        const API_URL = 'http://localhost:8080/ai/chat-stream';
+274	        
+275	        const response = await fetch(`${API_URL}?message=${encodeURIComponent(question)}`, {
+276	          method: 'GET',
+277	          // 注意：后端返回的是 text/html，所以这里应该接受 text/html
+278	          // 而不是 text/event-stream
+279	          headers: {
+280	            'Accept': 'text/html',  // 改为 text/html
+281	            'Cache-Control': 'no-cache'
+282	          },
+283	          signal: this.abortController.signal
+284	        });
+285	        
+286	        if (!response.ok) {
+287	          throw new Error(`HTTP错误: ${response.status}`);
+288	        }
+289	        
+290	        const reader = response.body.getReader();
+291	        const decoder = new TextDecoder('utf-8');
+292	        let accumulatedText = '';
+293	        
+294	        while (true) {
+295	          const { done, value } = await reader.read();
+296	          if (done) break;
+297	          
+298	          const chunk = decoder.decode(value, { stream: true });
+299	          
+300	          // 直接拼接文本内容
+301	          accumulatedText += chunk;
+302	          this.updateMessageText(messageIndex, accumulatedText);
+303	        }
+304	        
+305	        // 完成流式输出
+306	        this.messages[messageIndex].isStreaming = false;
+307	        this.messages[messageIndex].time = this.formatTime(new Date());
+308	        
+309	      } catch (error) {
+310	        if (error.name !== 'AbortError') {
+311	          throw error;
+312	        }
+313	      }
+314	    },
+315	    
+316	    updateMessageText(index, text) {
+317	      if (this.messages[index]) {
+318	        this.messages[index].text = text;
+319	        this.$forceUpdate();
+320	        this.scrollToBottom();
+321	      }
+322	    },
+323	    
+324	    stopGeneration() {
+325	      if (this.abortController) {
+326	        this.abortController.abort();
+327	        this.isLoading = false;
+328	        
+329	        const streamingMessage = this.messages.find(msg => msg.isStreaming);
+330	        if (streamingMessage) {
+331	          streamingMessage.isStreaming = false;
+332	          streamingMessage.time = this.formatTime(new Date());
+333	        }
+334	      }
+335	    },
+336	    
+337	    async copyToClipboard(text) {
+338	      try {
+339	        await navigator.clipboard.writeText(text);
+340	        this.showCopySuccess = true;
+341	        setTimeout(() => {
+342	          this.showCopySuccess = false;
+343	        }, 2000);
+344	      } catch (err) {
+345	        console.error('复制失败:', err);
+346	        this.errorMessage = '复制失败，请手动复制';
+347	      }
+348	    },
+349	    
+350	    useQuickQuestion(question) {
+351	      this.userInput = question;
+352	      this.$nextTick(() => {
+353	        this.adjustTextareaHeight();
+354	        this.$refs.inputField?.focus();
+355	      });
+356	    },
+357	    
+358	    clearChat() {
+359	      if (this.isLoading) {
+360	        this.stopGeneration();
+361	      }
+362	      
+363	      this.messages = [{
+364	        text: '您好！我是海洋知识AI助手，专注解答海洋科学、生物、地理、环保等相关问题。请问有什么可以帮您？',
+365	        type: 'ai',
+366	        time: this.formatTime(new Date()),
+367	        isStreaming: false
+368	      }];
+369	      this.userInput = '';
+370	      this.errorMessage = '';
+371	      this.adjustTextareaHeight();
+372	    },
+373	    
+374	    scrollToBottom() {
+375	      this.$nextTick(() => {
+376	        const container = this.$refs.chatContainer;
+377	        if (container) {
+378	          container.scrollTop = container.scrollHeight;
+379	        }
+380	      });
+381	    }
+382	  },
+383	  
+384	  watch: {
+385	    messages: {
+386	      handler() {
+387	        this.scrollToBottom();
+388	      },
+389	      deep: true
+390	    }
+391	  }
+392	};
+393	</script>
+394	
+395	<style scoped>
+396	.ai-qa-container {
+397	  height: 100vh;
+398	  display: flex;
+399	  flex-direction: column;
+400	  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+401	  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+402	}
+403	
+404	.header {
+405	  padding: 20px 40px;
+406	  background: white;
+407	  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+408	  display: flex;
+409	  justify-content: space-between;
+410	  align-items: center;
+411	}
+412	
+413	.logo-container {
+414	  display: flex;
+415	  align-items: center;
+416	  gap: 20px;
+417	}
+418	
+419	.logo {
+420	  height: 50px;
+421	  width: auto;
+422	}
+423	
+424	.title-container {
+425	  display: flex;
+426	  flex-direction: column;
+427	}
+428	
+429	.main-title {
+430	  margin: 0;
+431	  font-size: 28px;
+432	  color: #1a237e;
+433	  font-weight: 600;
+434	  background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+435	  -webkit-background-clip: text;
+436	  -webkit-text-fill-color: transparent;
+437	  background-clip: text;
+438	}
+439	
+440	.subtitle {
+441	  margin: 5px 0 0 0;
+442	  color: #5c6bc0;
+443	  font-size: 14px;
+444	}
+445	
+446	.clear-btn {
+447	  padding: 8px 16px;
+448	  background: #f5f5f5;
+449	  border: 1px solid #ddd;
+450	  border-radius: 20px;
+451	  color: #666;
+452	  cursor: pointer;
+453	  font-size: 14px;
+454	  display: flex;
+455	  align-items: center;
+456	  gap: 5px;
+457	  transition: all 0.3s;
+458	}
+459	
+460	.clear-btn:hover {
+461	  background: #e0e0e0;
+462	  color: #333;
+463	}
+464	
+465	.main-content {
+466	  flex: 1;
+467	  padding: 20px 40px;
+468	  overflow: hidden;
+469	}
+470	
+471	.chat-container {
+472	  height: 100%;
+473	  display: flex;
+474	  flex-direction: column;
+475	  background: white;
+476	  border-radius: 20px;
+477	  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+478	  overflow: hidden;
+479	}
+480	
+481	.welcome-section {
+482	  padding: 40px 20px;
+483	  text-align: center;
+484	}
+485	
+486	.welcome-card {
+487	  max-width: 600px;
+488	  margin: 0 auto;
+489	  padding: 40px;
+490	  background: linear-gradient(135deg, #f8fdff 0%, #e8f4fe 100%);
+491	  border-radius: 20px;
+492	  border: 1px solid #e1f5fe;
+493	}
+494	
+495	.welcome-icon {
+496	  font-size: 48px;
+497	  color: #2196f3;
+498	  margin-bottom: 20px;
+499	}
+500	
+501	.welcome-card h3 {
+502	  color: #1a237e;
+503	  margin-bottom: 10px;
+504	}
+505	
+506	.welcome-card p {
+507	  color: #5c6bc0;
+508	  margin-bottom: 30px;
+509	}
+510	
+511	.quick-questions {
+512	  text-align: left;
+513	}
+514	
+515	.quick-questions p {
+516	  color: #666;
+517	  margin-bottom: 10px;
+518	  font-size: 14px;
+519	}
+520	
+521	.question-chips {
+522	  display: flex;
+523	  flex-wrap: wrap;
+524	  gap: 10px;
+525	  justify-content: center;
+526	}
+527	
+528	.question-chip {
+529	  padding: 8px 16px;
+530	  background: #e3f2fd;
+531	  border: 1px solid #bbdefb;
+532	  border-radius: 20px;
+533	  color: #1976d2;
+534	  font-size: 14px;
+535	  cursor: pointer;
+536	  transition: all 0.3s;
+537	}
+538	
+539	.question-chip:hover {
+540	  background: #bbdefb;
+541	  transform: translateY(-2px);
+542	}
+543	
+544	.messages-list {
+545	  flex: 1;
+546	  overflow-y: auto;
+547	  padding: 20px;
+548	  display: flex;
+549	  flex-direction: column;
+550	  gap: 24px;
+551	}
+552	
+553	.message-item {
+554	  animation: fadeIn 0.3s ease;
+555	}
+556	
+557	@keyframes fadeIn {
+558	  from {
+559	    opacity: 0;
+560	    transform: translateY(10px);
+561	  }
+562	  to {
+563	    opacity: 1;
+564	    transform: translateY(0);
+565	  }
+566	}
+567	
+568	.message-content {
+569	  max-width: 85%;
+570	}
+571	
+572	.ai {
+573	  align-self: flex-start;
+574	}
+575	
+576	.user {
+577	  align-self: flex-end;
+578	}
+579	
+580	.message-header {
+581	  display: flex;
+582	  align-items: center;
+583	  gap: 10px;
+584	  margin-bottom: 8px;
+585	}
+586	
+587	.sender-name {
+588	  font-weight: 600;
+589	  font-size: 14px;
+590	}
+591	
+592	.ai .sender-name {
+593	  color: #2196f3;
+594	}
+595	
+596	.user .sender-name {
+597	  color: #4caf50;
+598	}
+599	
+600	.message-time {
+601	  font-size: 12px;
+602	  color: #999;
+603	}
+604	
+605	.message-body {
+606	  padding: 16px 20px;
+607	  border-radius: 18px;
+608	  position: relative;
+609	  line-height: 1.6;
+610	}
+611	
+612	.ai .message-body {
+613	  background: #f8fdff;
+614	  border: 1px solid #e1f5fe;
+615	  border-top-left-radius: 4px;
+616	}
+617	
+618	.user .message-body {
+619	  background: #f1f8e9;
+620	  border: 1px solid #dcedc8;
+621	  border-top-right-radius: 4px;
+622	}
+623	
+624	.text-content {
+625	  font-size: 15px;
+626	  color: #333;
+627	  white-space: pre-wrap;
+628	  word-break: break-word;
+629	}
+630	
+631	.avatar {
+632	  width: 32px;
+633	  height: 32px;
+634	  border-radius: 50%;
+635	  overflow: hidden;
+636	  border: 2px solid white;
+637	  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+638	}
+639	
+640	.avatar img {
+641	  width: 100%;
+642	  height: 100%;
+643	  object-fit: cover;
+644	}
+645	
+646	.ai-avatar {
+647	  border-color: #e3f2fd;
+648	}
+649	
+650	.user-avatar {
+651	  border-color: #f1f8e9;
+652	}
+653	
+654	.streaming-indicator {
+655	  margin-top: 10px;
+656	}
+657	
+658	.typing-dots {
+659	  display: flex;
+660	  gap: 4px;
+661	}
+662	
+663	.dot {
+664	  width: 8px;
+665	  height: 8px;
+666	  background: #2196f3;
+667	  border-radius: 50%;
+668	  animation: typing 1.4s infinite;
+669	}
+670	
+671	.dot:nth-child(2) {
+672	  animation-delay: 0.2s;
+673	}
+674	
+675	.dot:nth-child(3) {
+676	  animation-delay: 0.4s;
+677	}
+678	
+679	@keyframes typing {
+680	  0%, 60%, 100% {
+681	    transform: translateY(0);
+682	  }
+683	  30% {
+684	    transform: translateY(-10px);
+685	  }
+686	}
+687	
+688	.message-footer {
+689	  margin-top: 10px;
+690	  display: flex;
+691	  gap: 8px;
+692	  opacity: 0;
+693	  transition: opacity 0.3s;
+694	}
+695	
+696	.ai-message:hover .message-footer {
+697	  opacity: 1;
+698	}
+699	
+700	.action-btn {
+701	  width: 32px;
+702	  height: 32px;
+703	  border-radius: 50%;
+704	  border: none;
+705	  background: white;
+706	  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+707	  cursor: pointer;
+708	  display: flex;
+709	  align-items: center;
+710	  justify-content: center;
+711	  transition: all 0.3s;
+712	}
+713	
+714	.action-btn:hover {
+715	  transform: scale(1.1);
+716	  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+717	}
+718	
+719	.copy-btn {
+720	  color: #1976d2;
+721	}
+722	
+723	.input-section {
+724	  padding: 20px;
+725	  border-top: 1px solid #eee;
+726	  background: #fafafa;
+727	}
+728	
+729	.input-container {
+730	  max-width: 800px;
+731	  margin: 0 auto;
+732	}
+733	
+734	.input-wrapper {
+735	  position: relative;
+736	}
+737	
+738	.message-input {
+739	  width: 100%;
+740	  padding: 16px 120px 16px 20px;
+741	  border: 2px solid #e0e0e0;
+742	  border-radius: 24px;
+743	  font-size: 16px;
+744	  line-height: 1.5;
+745	  resize: none;
+746	  overflow-y: auto;
+747	  background: white;
+748	  transition: all 0.3s;
+749	  font-family: inherit;
+750	}
+751	
+752	.message-input:focus {
+753	  outline: none;
+754	  border-color: #2196f3;
+755	  box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+756	}
+757	
+758	.message-input:disabled {
+759	  background: #f5f5f5;
+760	  cursor: not-allowed;
+761	}
+762	
+763	.input-actions {
+764	  position: absolute;
+765	  right: 10px;
+766	  bottom: 10px;
+767	  display: flex;
+768	  gap: 10px;
+769	}
+770	
+771	.send-btn {
+772	  padding: 10px 24px;
+773	  background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+774	  color: white;
+775	  border: none;
+776	  border-radius: 20px;
+777	  font-size: 14px;
+778	  font-weight: 500;
+779	  cursor: pointer;
+780	  display: flex;
+781	  align-items: center;
+782	  gap: 6px;
+783	  transition: all 0.3s;
+784	}
+785	
+786	.send-btn:hover:not(.disabled) {
+787	  transform: translateY(-2px);
+788	  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+789	}
+790	
+791	.send-btn.disabled {
+792	  opacity: 0.6;
+793	  cursor: not-allowed;
+794	}
+795	
+796	.stop-btn {
+797	  padding: 10px 20px;
+798	  background: #ff9800;
+799	  color: white;
+800	  border: none;
+801	  border-radius: 20px;
+802	  font-size: 14px;
+803	  cursor: pointer;
+804	  display: flex;
+805	  align-items: center;
+806	  gap: 6px;
+807	  transition: all 0.3s;
+808	}
+809	
+810	.stop-btn:hover {
+811	  background: #f57c00;
+812	  transform: translateY(-2px);
+813	}
+814	
+815	.input-footer {
+816	  display: flex;
+817	  justify-content: space-between;
+818	  align-items: center;
+819	  margin-top: 10px;
+820	  padding: 0 10px;
+821	}
+822	
+823	.tips {
+824	  display: flex;
+825	  align-items: center;
+826	  gap: 6px;
+827	  color: #999;
+828	  font-size: 13px;
+829	}
+830	
+831	.error-toast {
+832	  position: fixed;
+833	  bottom: 100px;
+834	  right: 40px;
+835	  background: #ffebee;
+836	  color: #c62828;
+837	  padding: 16px 20px;
+838	  border-radius: 12px;
+839	  display: flex;
+840	  align-items: center;
+841	  gap: 10px;
+842	  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+843	  animation: slideIn 0.3s ease;
+844	  z-index: 1000;
+845	}
+846	
+847	.copy-toast {
+848	  position: fixed;
+849	  bottom: 100px;
+850	  right: 40px;
+851	  background: #e8f5e9;
+852	  color: #2e7d32;
+853	  padding: 16px 20px;
+854	  border-radius: 12px;
+855	  display: flex;
+856	  align-items: center;
+857	  gap: 10px;
+858	  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+859	  animation: slideIn 0.3s ease;
+860	  z-index: 1000;
+861	}
+862	
+863	.close-error {
+864	  background: none;
+865	  border: none;
+866	  color: #c62828;
+867	  font-size: 20px;
+868	  cursor: pointer;
+869	  padding: 0;
+870	  margin-left: 10px;
+871	}
+872	
+873	@keyframes slideIn {
+874	  from {
+875	    transform: translateX(100%);
+876	    opacity: 0;
+877	  }
+878	  to {
+879	    transform: translateX(0);
+880	    opacity: 1;
+881	  }
+882	}
+883	
+884	.fade-enter-active, .fade-leave-active {
+885	  transition: opacity 0.3s;
+886	}
+887	.fade-enter, .fade-leave-to {
+888	  opacity: 0;
+889	}
+890	
+891	/* 图标样式 */
+892	.icon-clear::before { content: "🗑️"; }
+893	.icon-welcome::before { content: "🌊"; }
+894	.icon-copy::before { content: "📋"; }
+895	.icon-stop::before { content: "⏹️"; }
+896	.icon-send::before { content: "✈️"; }
+897	.icon-tip::before { content: "💡"; }
+898	.icon-error::before { content: "⚠️"; }
+899	.icon-success::before { content: "✓"; }
+900	
+901	/* 响应式设计 */
+902	@media (max-width: 768px) {
+903	  .header {
+904	    padding: 15px 20px;
+905	    flex-direction: column;
+906	    gap: 15px;
+907	  }
+908	  
+909	  .main-content {
+910	    padding: 10px;
+911	  }
+912	  
+913	  .message-content {
+914	    max-width: 95%;
+915	  }
+916	  
+917	  .input-actions {
+918	    position: relative;
+919	    right: auto;
+920	    bottom: auto;
+921	    margin-top: 10px;
+922	    justify-content: flex-end;
+923	  }
+924	  
+925	  .message-input {
+926	    padding-right: 20px;
+927	  }
+928	  
+929	  .error-toast,
+930	  .copy-toast {
+931	    left: 20px;
+932	    right: 20px;
+933	    bottom: 80px;
+934	  }
+935	}
+936	</style>
