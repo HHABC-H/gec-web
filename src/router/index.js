@@ -88,6 +88,19 @@ export const constantRoutes = [
         name: 'Tree',
         component: () => import('@/views/user/list.vue'),
         meta: { title: '用户管理', icon: 'tree' }
+      },
+      {
+        path: 'sysmenu',
+        name: 'SysMenu',
+        component: () => import('@/views/menu/list.vue'),
+        meta: { title: '菜单管理', icon: 'el-icon-s-unfold' }
+      },
+      {
+        path: 'assignAuth',
+        name: 'AssignAuth',
+        component: () => import('@/views/role/assignAuth.vue'),
+        meta: { activeMenu: '/example/sysrole', title: '角色授权' },
+        hidden: true
       }
     ]
   },
